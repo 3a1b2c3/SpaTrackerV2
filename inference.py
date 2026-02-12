@@ -42,11 +42,24 @@ if __name__ == "__main__":
     # fps
     fps = int(args.fps)
     mask_dir = args.data_dir + f"/{args.video_name}.png"
-    
+
+    print(f"\n{'='*60}")
+    print(f"[bold cyan]SpatialTracker V2 Inference[/bold cyan]")
+    print(f"{'='*60}")
+    print(f"Video: [yellow]{args.video_name}[/yellow]")
+    print(f"Data type: [yellow]{args.data_type}[/yellow]")
+    print(f"Track mode: [yellow]{args.track_mode}[/yellow]")
+    print(f"Grid size: [yellow]{args.grid_size}[/yellow]")
+    print(f"Output: [yellow]{out_dir}[/yellow]")
+    print(f"{'='*60}\n")
+
+    print("[bold green]Step 1/6:[/bold green] Loading VGGT4Track model...")
     vggt4track_model = VGGT4Track.from_pretrained("Yuxihenry/SpatialTrackerV2_Front")
     vggt4track_model.eval()
     vggt4track_model = vggt4track_model.to("cuda")
+    print("[green]✓[/green] VGGT4Track model loaded\n")
 
+    print("[bold green]Step 2/6:[/bold green] Loading video data...")
     if args.data_type == "RGBD":
         npz_dir = args.data_dir + f"/{args.video_name}.npz"
         data_npz_load = dict(np.load(npz_dir, allow_pickle=True))
@@ -61,16 +74,22 @@ if __name__ == "__main__":
         extrs = np.linalg.inv(data_npz_load["extrinsics"])
         extrs = extrs[::fps]
         unc_metric = None
+        print(f"[green]✓[/green] Loaded RGBD data ({len(video_tensor)} frames)\n")
     elif args.data_type == "RGB":
         vid_dir = os.path.join(args.data_dir, f"{args.video_name}.mp4")
         video_reader = decord.VideoReader(vid_dir)
+        total_frames = len(video_reader)
+        print(f"  Total frames in video: {total_frames}")
         video_tensor = torch.from_numpy(video_reader.get_batch(range(len(video_reader))).asnumpy()).permute(0, 3, 1, 2)  # Convert to tensor and permute to (N, C, H, W)
         video_tensor = video_tensor[::fps].float()
+        print(f"  Sampled frames (fps={fps}): {len(video_tensor)}")
+        print(f"[green]✓[/green] Video loaded\n")
 
         # process the image tensor
+        print("[bold green]Step 3/6:[/bold green] Predicting camera poses and depth...")
         video_tensor = preprocess_image(video_tensor)[None]
         with torch.no_grad():
-            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+            with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
                 # Predict attributes including cameras, depth maps, and point maps.
                 predictions = vggt4track_model(video_tensor.cuda()/255)
                 extrinsic, intrinsic = predictions["poses_pred"], predictions["intrs"]
@@ -84,9 +103,11 @@ if __name__ == "__main__":
         #NOTE: 20% of the depth is not reliable
         # threshold = depth_conf.squeeze()[0].view(-1).quantile(0.6).item()
         unc_metric = depth_conf.squeeze().cpu().numpy() > 0.5
+        print(f"[green]✓[/green] Camera poses and depth predicted\n")
 
         data_npz_load = {}
-    
+
+    print("[bold green]Step 4/6:[/bold green] Loading tracking model...")
     if os.path.exists(mask_dir):
         mask_files = mask_dir
         mask = cv2.imread(mask_files)
@@ -115,7 +136,9 @@ if __name__ == "__main__":
     
     model.eval()
     model.to("cuda")
-    viser = Visualizer(save_dir=out_dir, grayscale=True, 
+    print(f"[green]✓[/green] Tracking model loaded\\n")
+
+    viser = Visualizer(save_dir=out_dir, grayscale=True,
                      fps=10, pad_value=0, tracks_leave_trace=5)
     
     grid_size = args.grid_size
@@ -137,6 +160,9 @@ if __name__ == "__main__":
     
     query_xyt = torch.cat([torch.zeros_like(grid_pts[:, :, :1]), grid_pts], dim=2)[0].numpy()
 
+    print(f"[bold green]Step 5/6:[/bold green] Running tracking inference...")
+    print(f"  Tracking {len(query_xyt)} points across {len(video_tensor)} frames")
+
     # Run model inference
     with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
         (
@@ -147,8 +173,12 @@ if __name__ == "__main__":
                             queries=query_xyt,
                             fps=1, full_point=False, iters_track=4,
                             query_no_BA=True, fixed_cam=False, stage=1, unc_metric=unc_metric,
-                            support_frame=len(video_tensor)-1, replace_ratio=0.2) 
-        
+                            support_frame=len(video_tensor)-1, replace_ratio=0.2)
+
+        print(f"[green]✓[/green] Tracking inference completed\\n")
+
+        print("[bold green]Step 6/6:[/bold green] Processing and saving results...")
+
         # resize the results to avoid too large I/O Burden
         # depth and image, the maximum side is 336
         max_size = 336
@@ -171,7 +201,7 @@ if __name__ == "__main__":
         if viz:
             viser.visualize(video=video[None],
                                 tracks=track2d_pred[None][...,:2],
-                                visibility=vis_pred[None],filename="test")
+                                visibility=vis_pred[None],filename=args.video_name)
 
         # save as the tapip3d format   
         data_npz_load["coords"] = (torch.einsum("tij,tnj->tni", c2w_traj[:,:3,:3], track3d_pred[:,:,:3].cpu()) + c2w_traj[:,:3,3][:,None,:]).numpy()
@@ -186,4 +216,9 @@ if __name__ == "__main__":
         result_filename = f'{args.video_name}_result.npz'
         np.savez(os.path.join(out_dir, result_filename), **data_npz_load)
 
-        print(f"Results saved to {out_dir}.\nTo visualize them with tapip3d, run: [bold yellow]python tapip3d_viz.py {out_dir}/{result_filename}[/bold yellow]")
+        print(f"[green]✓[/green] Results saved to [yellow]{out_dir}/{result_filename}[/yellow]")
+        print(f"\n{'='*60}")
+        print(f"[bold green]Inference Complete![/bold green]")
+        print(f"{'='*60}")
+        print(f"To visualize results with tapip3d, run:")
+        print(f"[bold yellow]python tapip3d_viz.py {out_dir}/{result_filename}[/bold yellow]\n")
