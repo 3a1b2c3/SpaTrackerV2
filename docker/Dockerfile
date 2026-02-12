@@ -46,12 +46,10 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 
-
 #RUN python3 -m pip install --upgrade pip && pip install swig opencv-python --no-cache-dir \
 RUN python3 -m pip install --upgrade pip && pip install opencv-python --no-cache-dir \
     opencv-fixer==0.2.5 && python -c "from opencv_fixer import AutoFix; AutoFix()"
 
-RUN apt-get update install build-essential python3-dev swig -y
 RUN python3 -m pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cu121 \
         -i https://urm.nvidia.com/artifactory/api/pypi/nv-shared-pypi/simple/ \
