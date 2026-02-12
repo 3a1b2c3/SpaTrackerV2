@@ -17,8 +17,7 @@ albumentations
 matplotlib
 mediapy
 scikit-image
-pycolmap===3.10.0
-#3.11.1
+pycolmap==3.11.1
 huggingface_hub
 pyceres>=2.4
 kornia>=0.8.1
