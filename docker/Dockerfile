@@ -51,11 +51,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
 RUN python3 -m pip install --upgrade pip && pip install opencv-python --no-cache-dir \
     opencv-fixer==0.2.5 && python -c "from opencv_fixer import AutoFix; AutoFix()"
 
-RUN python3 -m pip install --no-cache-dir --verbose  \
-RUN python3 -m pip install rtgym==0.16 
-RUN python3 -m pip install gymnasium==0.29.1
-RUN apt-get update
-RUN apt-get install build-essential python3-dev swig -y
+RUN apt-get update install build-essential python3-dev swig -y
 RUN python3 -m pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cu121 \
         -i https://urm.nvidia.com/artifactory/api/pypi/nv-shared-pypi/simple/ \
