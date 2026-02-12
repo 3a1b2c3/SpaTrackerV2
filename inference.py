@@ -87,14 +87,47 @@ if __name__ == "__main__":
 
         # process the image tensor
         print("[bold green]Step 3/6:[/bold green] Predicting camera poses and depth...")
+        print(f"  Video info: {len(video_tensor)} frames, {video_tensor.shape[2]}x{video_tensor.shape[3]} resolution")
+        print(f"  Preprocessing frames for VGGT4Track...")
         video_tensor = preprocess_image(video_tensor)[None]
+        video_shape = video_tensor.shape
+        print(f"  Preprocessed shape: {video_shape[1]} frames, {video_shape[2]}x{video_shape[3]}x{video_shape[4]}")
+        print(f"  Running VGGT4Track inference (bfloat16 precision)...")
+        print(f"  [yellow]⏳ Computing: camera poses, intrinsics, depth maps, confidence metrics...[/yellow]")
+        print(f"  [dim](This may take 1-3 minutes depending on video length and GPU)[/dim]")
+
+        import time
+        import threading
+
+        # Progress indicator for long-running inference
+        stop_progress = threading.Event()
+        def show_progress():
+            elapsed = 0
+            while not stop_progress.is_set():
+                time.sleep(5)  # Update every 5 seconds
+                if not stop_progress.is_set():
+                    elapsed += 5
+                    print(f"  [dim]  ... still computing ({elapsed}s elapsed)[/dim]")
+
+        progress_thread = threading.Thread(target=show_progress, daemon=True)
+
+        start_time = time.time()
+        progress_thread.start()
+
         with torch.no_grad():
             with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
                 # Predict attributes including cameras, depth maps, and point maps.
                 predictions = vggt4track_model(video_tensor.cuda()/255)
                 extrinsic, intrinsic = predictions["poses_pred"], predictions["intrs"]
                 depth_map, depth_conf = predictions["points_map"][..., 2], predictions["unc_metric"]
-        
+
+        # Stop progress indicator
+        stop_progress.set()
+        progress_thread.join(timeout=1)
+
+        inference_time = time.time() - start_time
+        print(f"  [green]✓[/green] Inference completed in {inference_time:.1f} seconds ({inference_time/len(video_tensor):.2f}s per frame)")
+        print(f"  Converting predictions to numpy arrays...")
         depth_tensor = depth_map.squeeze().cpu().numpy()
         extrs = np.eye(4)[None].repeat(len(depth_tensor), axis=0)
         extrs = extrinsic.squeeze().cpu().numpy()
@@ -103,6 +136,7 @@ if __name__ == "__main__":
         #NOTE: 20% of the depth is not reliable
         # threshold = depth_conf.squeeze()[0].view(-1).quantile(0.6).item()
         unc_metric = depth_conf.squeeze().cpu().numpy() > 0.5
+        print(f"  Applying confidence threshold (>0.5) to depth predictions...")
         print(f"[green]✓[/green] Camera poses and depth predicted\n")
 
         data_npz_load = {}

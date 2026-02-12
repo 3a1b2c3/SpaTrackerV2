@@ -329,6 +329,8 @@ def batch_matrix_to_pycolmap(
     num_points3D = len(valid_idx)
 
     camera = None
+    rig_created = False
+
     # frame idx
     for fidx in range(N):
         # set camera
@@ -366,16 +368,39 @@ def batch_matrix_to_pycolmap(
             # add camera
             reconstruction.add_camera(camera)
 
-        # set image
+            # Create rig once (needed for new pycolmap API)
+            if not rig_created:
+                rig = pycolmap.Rig()
+                rig.rig_id = 1
+                sensor_t = pycolmap.sensor_t()
+                sensor_t.type = pycolmap.SensorType.CAMERA
+                sensor_t.id = camera.camera_id
+                rig.add_ref_sensor(sensor_t)
+                reconstruction.add_rig(rig)
+                rig_created = True
+
+        # Create frame and set pose (new pycolmap API)
+        frame = pycolmap.Frame()
+        frame.frame_id = fidx
+        frame.rig_id = 1
+        reconstruction.add_frame(frame)
+
+        # set image pose through frame
         cam_from_world = pycolmap.Rigid3d(
             pycolmap.Rotation3d(extrinsics[fidx][:3, :3]),
             extrinsics[fidx][:3, 3],
         )  # Rot and Trans
+        reconstruction.frame(frame.frame_id).set_cam_from_world(
+            camera_id=camera.camera_id,
+            cam_from_world=cam_from_world
+        )
+
+        # Create image with new API (id -> image_id, no cam_from_world parameter)
         image = pycolmap.Image(
-            id=fidx,
+            image_id=fidx,
             name=f"image_{fidx}",
             camera_id=camera.camera_id,
-            cam_from_world=cam_from_world,
+            frame_id=frame.frame_id,
         )
 
         points2D_list = []
