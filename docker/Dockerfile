@@ -53,9 +53,7 @@ RUN python3 -m pip install --upgrade pip && pip install opencv-python --no-cache
 RUN python3 -m pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cu121 \
         -i https://urm.nvidia.com/artifactory/api/pypi/nv-shared-pypi/simple/ \
-        torchvision==0.18.1
-
-RUN python3 -m pip install --verbose \
+        torchvision==0.18.1 \
         gradio==5.31.0 \
         pydantic==2.10.6 \
         einops \
@@ -95,9 +93,7 @@ RUN python3 -m pip install --verbose \
         jaxtyping \
         transformers 
 
-RUN python3 -m pip install --verbose \
-        mediapy \
-        rm -rf /var/lib/apt/lists/*
+RUN python3 -m pip install --verbose mediapy 
 RUN mkdir data && mkdir config  && rm -rf /var/lib/apt/lists/*
 ENV PYTHONPATH="/code/src"
 
@@ -107,9 +103,8 @@ ADD tests ../tests
 RUN mkdir code
 WORKDIR /code
 ADD tests ./tests
-#ADD src ./src
-#ENV CUDA_HOME="/usr/local/cuda-12.1"
-#RUN python3 -m pip install flash_attn==2.5.9.post1 --use-pep517 --no-build-isolation
+
+
 RUN apt update
 RUN apt install wget
 
@@ -125,5 +120,5 @@ RUN mkdir data && rm -rf /var/lib/apt/lists/*
 # tensorboard
 ENV NCCL_DEBUG="INFO"
 # original container symlinks /usr/lib/x86_64-linux-gnu/libcuda.so.1 -> libcuda.so.535.129.03
-ENV LD_PRELOAD="/lib/x86_64-linux-gnu/libnvidia-ml.so.535.129.03:/lib/x86_64-linux-gnu/libcuda.so.535.129.03"
+#ENV LD_PRELOAD="/lib/x86_64-linux-gnu/libnvidia-ml.so.535.129.03:/lib/x86_64-linux-gnu/libcuda.so.535.129.03"
 ENV NCCL_CUDA_PATH="/lib/x86_64-linux-gnu/libnvidia-ml.so.535.129.03:/lib/x86_64-linux-gnu/libcuda.so.535.129.03"
