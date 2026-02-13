@@ -127,6 +127,3 @@ ENV NCCL_DEBUG="INFO"
 # original container symlinks /usr/lib/x86_64-linux-gnu/libcuda.so.1 -> libcuda.so.535.129.03
 ENV LD_PRELOAD="/lib/x86_64-linux-gnu/libnvidia-ml.so.535.129.03:/lib/x86_64-linux-gnu/libcuda.so.535.129.03"
 ENV NCCL_CUDA_PATH="/lib/x86_64-linux-gnu/libnvidia-ml.so.535.129.03:/lib/x86_64-linux-gnu/libcuda.so.535.129.03"
-RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
-RUN wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.9.post1/flash_attn-2.5.9.post1+cu122torch2.3cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-RUN pip install flash_attn-2.5.9.post1+cu122torch2.3cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
