@@ -58,7 +58,6 @@ RUN python3 -m pip install --verbose \
 RUN python3 -m pip install --verbose \
         gradio==5.31.0 \
         pydantic==2.10.6 \
-        opencv-python-headless \
         einops \
         einx \
         plotly \
@@ -72,12 +71,17 @@ RUN python3 -m pip install --verbose \
         hydra-core \
         omegaconf \
         albumentations \
-        matplotlib \
-        mediapy \
-        rm -rf /var/lib/apt/lists/*
+        matplotlib 
+
 RUN python3 -m pip install --verbose \
         scikit-image \
-        pycolmap==3.11.1 \
+        pycolmap==3.11.1 
+
+
+RUN python3 -m pip install --verbose \
+        git+https://github.com/facebookresearch/segment-anything.git \
+        git+https://github.com/EasternJournalist/utils3d.git@d3a577acf0a9ad7e513a1416449a07b6f47d967f#egg=utils3d
+RUN python3 -m pip install --verbose \
         huggingface_hub \
         "pyceres>=2.4" \
         "kornia>=0.8.1" \
@@ -92,9 +96,8 @@ RUN python3 -m pip install --verbose \
         transformers 
 
 RUN python3 -m pip install --verbose \
-        git+https://github.com/facebookresearch/segment-anything.git \
-        git+https://github.com/EasternJournalist/utils3d.git@d3a577acf0a9ad7e513a1416449a07b6f47d967f#egg=utils3d
-
+        mediapy \
+        rm -rf /var/lib/apt/lists/*
 RUN mkdir data && mkdir config  && rm -rf /var/lib/apt/lists/*
 ENV PYTHONPATH="/code/src"
 
@@ -109,8 +112,6 @@ ADD tests ./tests
 #RUN python3 -m pip install flash_attn==2.5.9.post1 --use-pep517 --no-build-isolation
 RUN apt update
 RUN apt install wget
-RUN wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.9.post1/flash_attn-2.5.9.post1+cu122torch2.3cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-RUN pip install flash_attn-2.5.9.post1+cu122torch2.3cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
 
 FROM base AS training
 # adlrl cannnot find, useful for tensorboard on cluster but can be installed locally
