@@ -259,7 +259,10 @@ class RFlowScheduler:
             torch.distributed.barrier(group=context_parallel_util.get_cp_group())
 
         model_args["image_cond"] = model_args["image_cond"].repeat(2, 1, 1, 1, 1)
-        progress_wrap = partial(tqdm, total=len(timesteps)) if progress else (lambda x: x)
+        num_steps = len(timesteps)
+        print(f"[sample] n={n}  steps={num_steps}  guidance={guidance_scale}  z={list(z_size)}")
+        loop_start = time.time()
+        progress_wrap = partial(tqdm, total=num_steps) if progress else (lambda x: x)
         for i, t in progress_wrap(enumerate(timesteps)):
             # mask for adding noise
             if mask is not None:
@@ -282,13 +285,18 @@ class RFlowScheduler:
             # classifier-free guidance
             z_in = torch.cat([z, z], 0)
 
+            t_val = t[0].item()
             t = torch.cat([t, t], 0)
             start = time.time()
             pred = model(z_in, t, **model_args)
             pred = pred[:, :, -z_in.shape[2]:]
             end = time.time()
 
-            print(f"Step {i} Forward time: {end - start:.4f} seconds")
+            fwd = end - start
+            elapsed = end - loop_start
+            avg = elapsed / (i + 1)
+            eta = avg * (num_steps - i - 1)
+            print(f"  step {i+1}/{num_steps}  t={t_val:.1f}  fwd={fwd:.2f}s  elapsed={elapsed:.1f}s  ETA={eta:.1f}s")
             pred_cond, pred_uncond = pred.chunk(2, dim=0)
             v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
 
@@ -303,4 +311,6 @@ class RFlowScheduler:
 
             if mask is not None:
                 z = torch.where(mask_t_upper[:, None, :, None, None], z, x0)
+        total = time.time() - loop_start
+        print(f"[sample] done  {num_steps} steps  total={total:.1f}s  avg={total/num_steps:.2f}s/step")
         return z

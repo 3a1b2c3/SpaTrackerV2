@@ -1,0 +1,6 @@
+# Infinite World - Demo Prompts
+# Format: [prompt, condition_image_path, action_json_path]
+prompts:
+  - -  Imagine yourself walking through the bustling Grand Central Station on a bright Sunday afternoon. The sunlight streams through the iconic arched windows, casting golden beams onto the marble floors. The hum of conversations, the rhythmic announcements of train departures, and the occasional sound of rolling suitcases fill the air. You pass by the famous clock at the center of the main concourse, where people gather to meet. The aroma of fresh coffee and baked goods wafts from nearby cafes. As you explore, you notice the intricate details of the celestial ceiling above, depicting constellations in a soft teal hue. The station feels alive yet calm, a perfect blend of history and modern energy. Where will you go next?
+    - ./assets/example_case/gc/image.png
+    - ./assets/example_case/gc/0001.json

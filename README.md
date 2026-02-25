@@ -117,3 +117,8 @@ If you find this work useful, please consider citing:
 ## License
 
 This project is released under the [MIT License](LICENSE).
+
+
+
+python scripts\infworld_inference.py --prompts C:\workspace\world\Infinite-World\prompts\mine2.yaml --num_chunks 15 --low_memory
+

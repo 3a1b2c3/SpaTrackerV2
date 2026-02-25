@@ -4,7 +4,6 @@ Infinite World - Action-Conditioned Video Generation Inference Script
 A standalone inference script for generating long videos with action control.
 """
 
-import argparse
 import sys
 import os
 import cv2
@@ -20,6 +19,7 @@ from omegaconf import OmegaConf
 import torch.distributed as dist
 import torchvision.transforms as transforms
 import re
+import argparse
 
 # Add project root to path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -179,8 +179,8 @@ setup_seed(GLOBAL_SEED + global_rank)
 TEXT_CFG_SCALE = 5.0
 NUM_SAMPLING_STEPS = 30
 SHIFT = 7  # PX256: 3, PX627: 7, PX960: 11
-NUM_CHUNKS = 2  # Number of video chunks to generate
-HIGH_QUALITY_SAVE = True
+NUM_CHUNKS = 1  # Number of video chunks to generate (1 = shorter video, 21 frames)
+HIGH_QUALITY_SAVE = False
 
 # Paths - checkpoint_path is read from config (configs/infworld_config.yaml)
 # Model config - use standalone config
@@ -221,42 +221,56 @@ def load_dit_state_dict(checkpoint_path):
     return state_dict
 
 
-def main():
-    global NUM_CHUNKS, NUM_SAMPLING_STEPS, HIGH_QUALITY_SAVE, TEXT_CFG_SCALE
+def parse_schema(schema):
+    """
+    Parses and validates fields from an arbitrary schema object.
 
+    Args:
+        schema (dict): The schema object containing fields.
+
+    Returns:
+        dict: Parsed fields with their values.
+    """
+    parsed_fields = {}
+    for key, value in schema.items():
+        if isinstance(value, bool):
+            parsed_fields[key] = value
+        elif isinstance(value, str):
+            parsed_fields[key] = value
+        elif isinstance(value, float):
+            parsed_fields[key] = value
+        else:
+            raise ValueError(f"Unsupported field type for key '{key}': {type(value)}")
+    return parsed_fields
+
+def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Infinite World - Action-Conditioned Video Generation')
-    parser.add_argument('--config', type=str, default=None,
-                        help='Path to YAML config file (default: configs/infworld_config.yaml)')
-    parser.add_argument('--prompts', type=str, default=None,
-                        help='Path to prompts YAML file (default: prompts/demo.yaml)')
-    parser.add_argument('--num_chunks', type=int, default=None,
-                        help='Number of video chunks to generate (default: 2)')
-    parser.add_argument('--low_memory', action='store_true',
-                        help='Enable low memory mode (reduces quality/steps for lower VRAM usage)')
+    parser.add_argument('--checkpoint_dir', type=str, default=None,
+                        help='Path to checkpoint directory')
+    parser.add_argument('--image', type=str, default=None,
+                        help='Path to input image')
+    parser.add_argument('--prompt', type=str, default=None,
+                        help='Text prompt for video generation')
+    parser.add_argument('--action_path', type=str, default=None,
+                        help='Path to action sequence file')
+    parser.add_argument('--output', type=str, default=None,
+                        help='Output video path')
+
     cmd_args = parser.parse_args()
-
-    # Update NUM_CHUNKS if provided via command line
-    if cmd_args.num_chunks is not None:
-        NUM_CHUNKS = cmd_args.num_chunks
-
-    # Apply low memory optimizations
-    if cmd_args.low_memory:
-        NUM_SAMPLING_STEPS = 8  # Ultra-aggressive: 2 steps for maximum speed
-        HIGH_QUALITY_SAVE = False  # Lower video quality
-        TEXT_CFG_SCALE = 3  # Minimal guidance for extreme speed
-        print("[InfWorld] LOW MEMORY MODE ENABLED (ULTRA-FAST):")
-        print(f"  - Sampling steps: {NUM_SAMPLING_STEPS} (default: 30) - 15x FASTER!")
-        print(f"  - High quality save: {HIGH_QUALITY_SAVE} (default: True)")
-        print(f"  - CFG scale: {TEXT_CFG_SCALE} (default: 5.0) - MAXIMUM SPEED!")
 
     torch_gc()
 
-    # Use command-line config if provided, otherwise use default
-    config_path = cmd_args.config if cmd_args.config else CONFIG_PATH
-    config_path = resolve_path(config_path)
+    config_path = CONFIG_PATH
     args = OmegaConf.load(config_path)
-    checkpoint_path = resolve_path(args.get("checkpoint_path", "checkpoints/models/diffusion_pytorch_model.safetensors"))
+
+    # Override checkpoint path if provided via command-line
+    if cmd_args.checkpoint_dir:
+        # Use the checkpoint directory from command-line
+        checkpoint_path = resolve_path(os.path.join(cmd_args.checkpoint_dir, "models/diffusion_pytorch_model.safetensors"))
+        print(f"[InfWorld] Using checkpoint from command-line: {checkpoint_path}")
+    else:
+        checkpoint_path = resolve_path(args.get("checkpoint_path", "checkpoints/models/diffusion_pytorch_model.safetensors"))
     
     ckpt_step = extract_ckpt_step(checkpoint_path)
     
@@ -316,13 +330,23 @@ def main():
     # Load bucket config
     from infworld.configs import bucket_config as bucket_config_module
     bucket_config = getattr(bucket_config_module, BUCKET_CONFIG_NAME)
-    
-    # Load prompts - use command-line arg if provided, otherwise use default
-    prompts_path = cmd_args.prompts if cmd_args.prompts else PROMPTS_YAML
-    prompts_path = resolve_path(prompts_path)
-    target_prompts = OmegaConf.load(prompts_path).prompts
-    print(f"[InfWorld] Loaded {len(target_prompts)} prompts from: {prompts_path}")
-    
+
+    # Load prompts - use command-line args if provided, otherwise load from YAML
+    if cmd_args.image and cmd_args.prompt and cmd_args.action_path:
+        # Single task from command-line arguments
+        target_prompts = [(cmd_args.prompt, cmd_args.image, cmd_args.action_path)]
+        print(f"[InfWorld] Using command-line arguments:")
+        print(f"  Image: {cmd_args.image}")
+        print(f"  Prompt: {cmd_args.prompt}")
+        print(f"  Action: {cmd_args.action_path}")
+        if cmd_args.output:
+            print(f"  Output: {cmd_args.output}")
+    else:
+        # Load from YAML file
+        prompts_path = os.path.abspath(PROMPTS_YAML)
+        target_prompts = OmegaConf.load(prompts_path).prompts
+        print(f"[InfWorld] Loaded {len(target_prompts)} prompts from YAML")
+
     # Process each prompt
     for task_idx, (prompt, image_path, action_path) in enumerate(target_prompts):
         if task_idx % dp_size != dp_rank:
@@ -358,33 +382,33 @@ def main():
         # Generate video chunks
         for chunk_idx in range(NUM_CHUNKS):
             print(f"[InfWorld] Generating chunk {chunk_idx + 1}/{NUM_CHUNKS}")
-
+            
             with torch.no_grad():
                 current_cond = video_buffer.to(local_rank)
                 current_latent = vae.encode(current_cond)
-
-            # Get action slice for current chunkNUM_CHUNKS
+            
+            # Get action slice for current chunk
             curr_start = video_buffer.shape[2] - 1
             curr_end = curr_start + args.validation_data.num_frames
-
+            
             move = torch.tensor(move_indices[curr_start:curr_end], dtype=torch.long, device=local_rank)
             view = torch.tensor(view_indices[curr_start:curr_end], dtype=torch.long, device=local_rank)
-
+            
             # Pad if needed
             num_frames = args.validation_data.num_frames
             if move.shape[0] < num_frames:
                 pad_len = num_frames - move.shape[0]
                 move = torch.cat([move, torch.zeros(pad_len, dtype=torch.long, device=local_rank)])
                 view = torch.cat([view, torch.zeros(pad_len, dtype=torch.long, device=local_rank)])
-
+            
             additional_args = {
                 "image_cond": current_latent,
                 "move": move.unsqueeze(0),
                 "view": view.unsqueeze(0),
             }
-
+            
             torch_gc()
-
+            
             with torch.no_grad():
                 samples = scheduler.sample(
                     model=dit,
@@ -397,33 +421,25 @@ def main():
                     device=torch.device(local_rank),
                     additional_args=additional_args,
                 )
-
+                
                 decoded_chunk = vae.decode(samples).cpu()
-
-                # Save individual chunk (only new frames)
-                individual_chunk_name = f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}_chunk{chunk_idx:03d}_individual"
-                individual_chunk_path = os.path.join(output_dir, individual_chunk_name)
-                quality = 10 if HIGH_QUALITY_SAVE else 5
-                save_silent_video(decoded_chunk.to(local_rank), individual_chunk_path, fps=30, quality=quality)
-                print(f"[InfWorld] Saved individual chunk: {individual_chunk_path}.mp4")
-
-                # Append to cumulative buffer
                 video_buffer = torch.cat([video_buffer, decoded_chunk[:, :, 1:]], dim=2)
-
+                
                 print(f"[InfWorld] Chunk {chunk_idx + 1} done. Total frames: {video_buffer.shape[2]}")
-
-                # Save cumulative video (all frames up to this chunk)
-                cumulative_chunk_name = f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}_chunk{chunk_idx:03d}_cumulative"
-                cumulative_chunk_path = os.path.join(output_dir, cumulative_chunk_name)
-                save_silent_video(video_buffer.to(local_rank), cumulative_chunk_path, fps=30, quality=quality)
-                print(f"[InfWorld] Saved cumulative: {cumulative_chunk_path}.mp4")
-
                 torch_gc()
         
         # Save final video
-        video_name = f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}"
-        save_path = os.path.join(output_dir, video_name)
-        
+        if cmd_args.output:
+            # Use command-line specified output path
+            save_path = cmd_args.output
+            # Remove .mp4 extension if present (save_silent_video adds it)
+            if save_path.endswith('.mp4'):
+                save_path = save_path[:-4]
+        else:
+            # Auto-generate filename
+            video_name = f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}"
+            save_path = os.path.join(output_dir, video_name)
+
         quality = 10 if HIGH_QUALITY_SAVE else 5
         save_silent_video(video_buffer.to(local_rank), save_path, fps=30, quality=quality)
         print(f"[InfWorld] Saved: {save_path}.mp4")

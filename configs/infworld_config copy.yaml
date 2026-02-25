@@ -1,3 +1,4 @@
+# Infinite World - Model Configuration
 # Download from https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B and put files under checkpoints/models/
 # Paths below are relative to project root unless absolute.
 
@@ -63,7 +64,7 @@ vae_cfg:
 ##########################
 
 validation_data:
-  num_frames: 81  # Keep at 81 for model architecture compatibility
+  num_frames: 81
 
 ##########################
 ### other config

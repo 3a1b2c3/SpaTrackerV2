@@ -1,0 +1,26 @@
+# Infinite World - Demo Prompts
+# Format: [prompt, condition_image_path, action_json_path]
+prompts:
+  - -  The moon casts an eerie glow over the abandoned bus station, its silence broken only by the occasional rustle of the wind. Rows of rusting buses sit motionless, their windows cracked and interiors cloaked in shadows. Step cautiously onto one of the buses, the creak of the metal stairs echoing in the stillness. Look around—faded seats covered in dust, forgotten belongings scattered on the floor, and graffiti scrawled across the walls tell stories of a place long forgotten. The dim light flickers as you move deeper, the air thick with the scent of decay and mystery, urging you to uncover what secrets this desolate station holds
+    - ./assets/example_case/bus/1768786343.png
+    - ./assets/example_case/bus/0001.json
+  
+  - -  Imagine yourself walking through the bustling Grand Central Station on a bright Sunday afternoon. The sunlight streams through the iconic arched windows, casting golden beams onto the marble floors. The hum of conversations, the rhythmic announcements of train departures, and the occasional sound of rolling suitcases fill the air. You pass by the famous clock at the center of the main concourse, where people gather to meet. The aroma of fresh coffee and baked goods wafts from nearby cafes. As you explore, you notice the intricate details of the celestial ceiling above, depicting constellations in a soft teal hue. The station feels alive yet calm, a perfect blend of history and modern energy. Where will you go next?
+    - ./assets/example_case/gc/image.png
+    - ./assets/example_case/gc/0001.json
+
+  - -  Imagine yourself wandering around a cozy kitchen on a quiet morning. The sunlight streams through the window, illuminating the wooden countertops and the faint steam rising from a freshly brewed cup of coffee. The aroma of baked bread and sizzling bacon fills the air. You hear the gentle hum of the refrigerator and the occasional clink of utensils as you explore. The shelves are lined with jars of spices, and a bowl of fresh fruit sits on the table. The warmth of the room invites you to linger and enjoy the peaceful atmosphere. What will you cook or discover next?
+    - ./assets/example_case/kitchen/image.png
+    - ./assets/example_case/kitchen/0001.json
+
+  - -  You are the RC car player in the frame. As a fast-paced RC car race through a suburban street on a sunny day, with the miniature vehicle zipping past houses, driveways, and mailboxes, accompanied by the hum of its motor and the cheerful sounds of children playing in the background.
+    - ./assets/example_case/racer/Screenshot.png
+    - ./assets/example_case/racer/0001.json
+
+  - -  Walk around the serene koi pond, where vibrant fish glide gracefully beneath the water's surface, their colors reflecting the sunlight. The gentle ripples create a calming rhythm as you follow the stone path encircling the pond. Beyond the water, the trail leads you toward the mountains, where the air grows cooler and the scent of pine fills your senses. The towering peaks rise ahead, inviting you to explore their hidden trails and discover the beauty of nature waiting beyond the horizon
+    - ./assets/example_case/koi/image.png
+    - ./assets/example_case/koi/0001.json
+  
+  - -  Imagine walking through the quiet backlanes of Tokyo, where narrow alleys are lined with traditional wooden houses, vending machines hum softly, and the faint aroma of street food lingers in the air. Look left to see a hidden shrine tucked between buildings, its red torii gate glowing under lantern light. Look right to spot a tiny ramen shop with steam billowing out, inviting you in. The soft glow of neon signs reflects off the wet pavement as you continue your journey, discovering the city's secrets at every turn. Where will you go next?
+    - ./assets/example_case/streetview/streetview.jpg
+    - ./assets/example_case/streetview/0001.json
