@@ -17,6 +17,8 @@ set CONFIG_YAML=%4
 set NUM_CHUNKS=%5
 if "%NUM_CHUNKS%"=="" set NUM_CHUNKS=2
 set LOW_MEMORY=%6
+set MAX_ASPECTS=%7
+if "%MAX_ASPECTS%"=="" set MAX_ASPECTS=1
 
 set CROP_DIR=C:\workspace\world\VBench\vbench2_beta_i2v\vbench2_beta_i2v\data\crop
 set PROMPTS_YAML=%OUTPUT_BASE%\vbench_prompts.yaml
@@ -40,7 +42,7 @@ if "%LOW_MEMORY%"=="1" echo Low memory:  ENABLED
 echo.
 echo Generating prompts YAML...
 
-python scripts\gen_vbench_prompts.py "%CROP_DIR%" "%ACTION_PATH%" "%PROMPTS_YAML%" > "%OUTPUT_BASE%\img_count.tmp" 2>&1
+python scripts\gen_vbench_prompts.py "%CROP_DIR%" "%ACTION_PATH%" "%PROMPTS_YAML%" %MAX_ASPECTS% > "%OUTPUT_BASE%\img_count.tmp" 2>&1
 set /p NUM_IMAGES=<"%OUTPUT_BASE%\img_count.tmp"
 del "%OUTPUT_BASE%\img_count.tmp"
 
