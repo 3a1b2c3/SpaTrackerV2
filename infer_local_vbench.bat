@@ -62,7 +62,7 @@ if %ERRORLEVEL%==0 (
 
 :: Record start time
 set START_TIME=%TIME%
-for /f "tokens=1-4 delims=:., " %%a in ("%TIME: =0%") do set /a START_S=%%a*3600+%%b*60+%%c
+for /f "tokens=1-4 delims=:., " %%a in ("%TIME: =0%") do set /a START_S=(1%%a-100)*3600+(1%%b-100)*60+(1%%c-100)
 
 :: Build optional args
 set OPTIONAL_ARGS=--prompts "%PROMPTS_YAML%" --num_chunks %NUM_CHUNKS%
@@ -76,7 +76,7 @@ set EXIT_CODE=%ERRORLEVEL%
 
 :: Record end time
 set END_TIME=%TIME%
-for /f "tokens=1-4 delims=:., " %%a in ("%TIME: =0%") do set /a END_S=%%a*3600+%%b*60+%%c
+for /f "tokens=1-4 delims=:., " %%a in ("%TIME: =0%") do set /a END_S=(1%%a-100)*3600+(1%%b-100)*60+(1%%c-100)
 set /a ELAPSED=END_S-START_S
 if %ELAPSED% lss 0 set /a ELAPSED+=86400
 set /a ELAPSED_H=ELAPSED/3600
