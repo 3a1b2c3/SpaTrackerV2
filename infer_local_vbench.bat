@@ -10,7 +10,7 @@ setlocal enabledelayedexpansion
 set CHECKPOINT_DIR=%1
 if "%CHECKPOINT_DIR%"=="" set CHECKPOINT_DIR=.\checkpoints
 set ACTION_PATH=%2
-if "%ACTION_PATH%"=="" set ACTION_PATH=examples\00
+if "%ACTION_PATH%"=="" set ACTION_PATH=.\assets\example_case\0001.json
 set OUTPUT_BASE=%3
 if "%OUTPUT_BASE%"=="" set OUTPUT_BASE=.\out\vbench
 set CONFIG_YAML=%4
