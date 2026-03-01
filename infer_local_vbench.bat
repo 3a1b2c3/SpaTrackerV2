@@ -40,35 +40,9 @@ if "%LOW_MEMORY%"=="1" echo Low memory:  ENABLED
 echo.
 echo Generating prompts YAML...
 
-:: Write helper script to temp file
-set GEN_SCRIPT=%TEMP%\vbench_gen_prompts.py
-(
-    echo import os
-    echo crop_dir = r'%CROP_DIR%'
-    echo action_path = r'%ACTION_PATH%'.replace('\\', '/')
-    echo out_yaml = r'%PROMPTS_YAML%'
-    echo lines = ['prompts:']
-    echo count = 0
-    echo for aspect in sorted^(os.listdir^(crop_dir^)^):
-    echo     aspect_dir = os.path.join^(crop_dir, aspect^)
-    echo     if not os.path.isdir^(aspect_dir^): continue
-    echo     for f in sorted^(os.listdir^(aspect_dir^)^):
-    echo         if not f.lower^(^).endswith^('.jpg'^): continue
-    echo         img_path = os.path.join^(aspect_dir, f^).replace^('\\', '/'  ^)
-    echo         prompt = os.path.splitext^(f^)[0]
-    echo         lines.append^('  - - ' + repr^(prompt^)^)
-    echo         lines.append^('    - ' + repr^(img_path^)^)
-    echo         lines.append^('    - ' + repr^(action_path^)^)
-    echo         count += 1
-    echo with open^(out_yaml, 'w', encoding='utf-8'^) as fp:
-    echo     fp.write^('\n'.join^(lines^) + '\n'^)
-    echo print^(count^)
-) > "%GEN_SCRIPT%"
-
-python "%GEN_SCRIPT%" > "%OUTPUT_BASE%\img_count.tmp" 2>&1
+python scripts\gen_vbench_prompts.py "%CROP_DIR%" "%ACTION_PATH%" "%PROMPTS_YAML%" > "%OUTPUT_BASE%\img_count.tmp" 2>&1
 set /p NUM_IMAGES=<"%OUTPUT_BASE%\img_count.tmp"
 del "%OUTPUT_BASE%\img_count.tmp"
-del "%GEN_SCRIPT%"
 
 if not defined NUM_IMAGES set NUM_IMAGES=0
 echo Generated %NUM_IMAGES% image prompts -> %PROMPTS_YAML%
