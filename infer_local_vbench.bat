@@ -45,7 +45,7 @@ set /p NUM_IMAGES=<"%OUTPUT_BASE%\img_count.tmp"
 del "%OUTPUT_BASE%\img_count.tmp"
 
 if not defined NUM_IMAGES set NUM_IMAGES=0
-echo Generated %NUM_IMAGES% image prompts -> %PROMPTS_YAML%
+echo Generated %NUM_IMAGES% image prompts -^> %PROMPTS_YAML%
 
 :: -------------------------------------------------------
 :: Phase 2: Run inference with timing
