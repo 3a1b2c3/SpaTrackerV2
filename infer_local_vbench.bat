@@ -89,7 +89,7 @@ if "%LOW_MEMORY%"=="1" echo Low memory:  ENABLED
 echo.
 echo Generating prompts YAML...
 
-python scripts\gen_vbench_prompts.py "%CROP_DIR%" "%ACTION_PATH%" "%PROMPTS_YAML%" %MAX_ASPECTS% "%IMAGE_TYPES%" > "%OUTPUT_BASE%\img_count.tmp" 2>&1
+python scripts\gen_vbench_prompts.py "%CROP_DIR%" "%ACTION_PATH%" "%PROMPTS_YAML%" "%IMAGE_TYPES%" > "%OUTPUT_BASE%\img_count.tmp" 2>&1
 set /p NUM_IMAGES=<"%OUTPUT_BASE%\img_count.tmp"
 del "%OUTPUT_BASE%\img_count.tmp"
 
