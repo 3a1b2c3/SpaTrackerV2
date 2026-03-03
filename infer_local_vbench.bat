@@ -1,13 +1,53 @@
 @echo off
 :: Infinite World - VBench Crop Dataset Batch Inference
 :: Runs inference on all images in the VBench crop dataset and writes timing stats to txt.
-:: Usage: infer_local_vbench.bat [checkpoint_dir] [action_path] [output_base] [config_yaml] [num_chunks] [low_memory] [max_aspects] [image_types]
-:: Runs inference 5x per image (VBench requires 5 videos/prompt), writes {prompt}-{0..4}.mp4 to output_base\videos\
+:: Usage: infer_local_vbench.bat [checkpoint_dir] [action_path] [output_base] [config_yaml] [num_chunks] [low_memory] [max_aspects] [image_types] [num_samples]
+:: Runs inference num_samples times per image (VBench requires 5), writes {prompt}-{0..N-1}.mp4 to output_base\videos\
 :: image_types: comma-separated filter e.g. "background,scenery,abstract" (default: all types)
-:: Example: infer_local_vbench.bat .\checkpoints .\assets\example_case\0001.json .\out\vbench "" 2 1 1 "background,scenery"
+:: Skips already-generated videos automatically.
+:: Example: infer_local_vbench.bat .\checkpoints .\assets\example_case\0001.json .\out\vbench "" 2 1 1 "background,scenery" 5
 
 setlocal enabledelayedexpansion
 
+:: --help
+if /i "%~1"=="--help" goto :help
+if /i "%~1"=="-h"     goto :help
+if /i "%~1"=="/?"     goto :help
+goto :run
+
+:help
+echo.
+echo Infinite World - VBench Crop Batch Inference
+echo.
+echo Usage:
+echo   infer_local_vbench.bat [checkpoint_dir] [action_path] [output_base] [config_yaml]
+echo                          [num_chunks] [low_memory] [max_aspects] [image_types] [num_samples]
+echo.
+echo Arguments (positional, all optional):
+echo   1  checkpoint_dir   Path to checkpoint directory          (default: .\checkpoints)
+echo   2  action_path      Path to action JSON file              (default: .\assets\example_case\0001.json)
+echo   3  output_base      Base output directory                 (default: .\out\vbench)
+echo   4  config_yaml      Path to config YAML                   (default: from config)
+echo   5  num_chunks       Number of video chunks per sample     (default: 2)
+echo   6  low_memory       Enable low-memory mode: 0 or 1        (default: 0)
+echo   7  max_aspects      Max aspect ratio variants             (default: 1)
+echo   8  image_types      Comma-separated type filter           (default: all)
+echo                         e.g. "background,scenery,abstract"
+echo   9  num_samples      Videos to generate per prompt         (default: 5)
+echo.
+echo Notes:
+echo   - VBench requires 5 samples per prompt (num_samples=5)
+echo   - Already-generated videos are skipped automatically
+echo   - Outputs: {output_base}\videos\{prompt}-{0..N-1}.mp4
+echo   - Log:     {output_base}\vbench_run.log
+echo   - Stats:   {output_base}\vbench_stats.txt
+echo.
+echo Example:
+echo   infer_local_vbench.bat .\checkpoints .\assets\example_case\0001.json .\out\vbench "" 2 1 1 "background,scenery" 5
+echo.
+exit /b 0
+
+:run
 :: Parameters
 set CHECKPOINT_DIR=%1
 if "%CHECKPOINT_DIR%"=="" set CHECKPOINT_DIR=.\checkpoints
@@ -22,6 +62,8 @@ set LOW_MEMORY=%6
 set MAX_ASPECTS=%7
 if "%MAX_ASPECTS%"=="" set MAX_ASPECTS=1
 set IMAGE_TYPES=%~8
+set NUM_SAMPLES=%9
+if "%NUM_SAMPLES%"=="" set NUM_SAMPLES=5
 
 set CROP_DIR=C:\workspace\world\VBench\vbench2_beta_i2v\vbench2_beta_i2v\data\crop
 set PROMPTS_YAML=%OUTPUT_BASE%\vbench_prompts.yaml
@@ -72,22 +114,18 @@ set START_TIME=%TIME%
 for /f "tokens=1-4 delims=:., " %%a in ("%TIME: =0%") do set /a START_S=(1%%a-100)*3600+(1%%b-100)*60+(1%%c-100)
 
 :: Build optional args
-set OPTIONAL_ARGS=--prompts "%PROMPTS_YAML%" --num_chunks %NUM_CHUNKS%
+set OPTIONAL_ARGS=--prompts "%PROMPTS_YAML%" --num_chunks %NUM_CHUNKS% --num_samples %NUM_SAMPLES%
 if not "%CONFIG_YAML%"=="" set OPTIONAL_ARGS=%OPTIONAL_ARGS% --config "%CONFIG_YAML%"
 if "%LOW_MEMORY%"=="1" set OPTIONAL_ARGS=%OPTIONAL_ARGS% --low_memory
 
 :: Truncate log file
 type nul > "%LOG_FILE%"
 
-set LAST_EXIT=0
-for /l %%i in (0,1,4) do (
-    echo.
-    echo [VBench] Run %%i/4 starting at !TIME!...
-    python scripts\infworld_inference.py %OPTIONAL_ARGS% --seed %%i --vbench_index %%i --vbench_output_dir "%VBENCH_OUTPUT_DIR%" 2>&1 | powershell -Command "$input | Tee-Object -Append -FilePath '%LOG_FILE%'"
-    set LAST_EXIT=!ERRORLEVEL!
-    echo [VBench] Run %%i/4 done. Exit: !LAST_EXIT!
-)
-set EXIT_CODE=%LAST_EXIT%
+echo.
+echo [VBench] Generating %NUM_SAMPLES% samples per prompt...
+python scripts\infworld_inference.py %OPTIONAL_ARGS% --vbench_output_dir "%VBENCH_OUTPUT_DIR%" 2>&1 | powershell -Command "$input | Tee-Object -Append -FilePath '%LOG_FILE%'"
+set EXIT_CODE=%ERRORLEVEL%
+echo [VBench] Done. Exit: %EXIT_CODE%
 
 :: Record end time
 set END_TIME=%TIME%
@@ -100,7 +138,7 @@ set /a ELAPSED_SS=ELAPSED%%60
 
 :: Avg seconds per video (5 runs x NUM_IMAGES)
 set AVG_S=N/A
-set /a TOTAL_VIDEOS=NUM_IMAGES*5
+set /a TOTAL_VIDEOS=NUM_IMAGES*NUM_SAMPLES
 if %TOTAL_VIDEOS% gtr 0 if %ELAPSED% gtr 0 set /a AVG_S=ELAPSED/TOTAL_VIDEOS
 
 :: Snapshot GPU after
@@ -141,8 +179,8 @@ echo ==============================================
     echo Low memory:     %LOW_MEMORY%
     echo.
     echo === Performance ===
-    echo Total elapsed:  %ELAPSED_H%h %ELAPSED_M%m %ELAPSED_SS%s ^(%ELAPSED%s^)
-    echo Total videos:   %TOTAL_VIDEOS% ^(%NUM_IMAGES% images x 5 runs^)
+    echo Num samples:    %NUM_SAMPLES%
+    echo Total videos:   %TOTAL_VIDEOS% ^(%NUM_IMAGES% images x %NUM_SAMPLES% samples^)
     echo Avg per video:  %AVG_S%s
     echo.
     echo === GPU ===
