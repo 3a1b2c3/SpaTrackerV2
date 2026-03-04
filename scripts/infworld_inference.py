@@ -102,7 +102,7 @@ def load_action_sequence(action_path):
     view_indices = [VIEW_ACTION_MAP[a['view']] for a in actions]
     return move_indices, view_indices
 
-def load_condition_image(image_path, bucket_config):
+def load_condition_image(image_path, bucket_config, force_hw=None):
     """Load and preprocess condition image."""
     if is_vid(image_path):
         frames = get_first_clip_from_video(image_path, clip_len=1)
@@ -115,9 +115,12 @@ def load_condition_image(image_path, bucket_config):
     
     processed_frames = []
     for frame in frames:
-        ratio = frame.shape[0] / frame.shape[1]
-        closest_bucket = sorted(bucket_config.keys(), key=lambda x: abs(float(x) - ratio))[0]
-        target_h, target_w = bucket_config[closest_bucket][0]
+        if force_hw is not None:
+            target_h, target_w = force_hw
+        else:
+            ratio = frame.shape[0] / frame.shape[1]
+            closest_bucket = sorted(bucket_config.keys(), key=lambda x: abs(float(x) - ratio))[0]
+            target_h, target_w = bucket_config[closest_bucket][0]
         
         tensor = resize_and_center_crop(frame, (target_h, target_w))
         tensor = (tensor / 255 - 0.5) * 2  # Normalize to [-1, 1]
@@ -246,7 +249,15 @@ def main():
                         help='Comma-separated image_type values to include, e.g. "scenery,indoor" (default: scenery,indoor)')
     parser.add_argument('--fps', type=int, default=20,
                         help='Frames per second for saved videos (default: 20)')
+    parser.add_argument('--resolution', type=str, default='768x512',
+                        help='Output resolution as WxH (default: 768x512)')
     cmd_args = parser.parse_args()
+
+    # Parse --resolution WxH → force_hw (h, w)
+    force_hw = None
+    if cmd_args.resolution:
+        w_str, h_str = cmd_args.resolution.lower().split('x')
+        force_hw = (int(h_str), int(w_str))
 
     print("[InfWorld] Flags:")
     print(f"  --config           {cmd_args.config or '(default)'}")
@@ -424,7 +435,7 @@ def main():
         os.makedirs(task_subdir, exist_ok=True)
 
         # Load condition image and encode once per prompt (shared across samples)
-        cond_video = load_condition_image(image_path, bucket_config).to(local_rank)
+        cond_video = load_condition_image(image_path, bucket_config, force_hw=force_hw).to(local_rank)
 
         with torch.no_grad():
             cond_latent = vae.encode(cond_video)
