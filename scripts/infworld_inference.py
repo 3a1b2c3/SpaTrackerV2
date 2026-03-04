@@ -177,7 +177,7 @@ GLOBAL_SEED = 42
 setup_seed(GLOBAL_SEED + global_rank)
 
 TEXT_CFG_SCALE = 5.0
-NUM_SAMPLING_STEPS = 30
+NUM_SAMPLING_STEPS = 5
 SHIFT = 7  # PX256: 3, PX627: 7, PX960: 11
 NUM_CHUNKS = 2  # Number of video chunks to generate
 HIGH_QUALITY_SAVE = True
@@ -507,7 +507,7 @@ def main():
                     # Save individual chunk (only new frames)
                     individual_chunk_name = f"{file_prefix:04d}_{stem}_seed{sample_seed}_chunk{chunk_idx:03d}_individual"
                     individual_chunk_path = os.path.join(task_subdir, individual_chunk_name)
-                    save_silent_video(decoded_chunk.to(local_rank), individual_chunk_path, fps=30, quality=quality)
+                    save_silent_video(decoded_chunk.to(local_rank), individual_chunk_path, fps=20, quality=quality)
                     print(f"[InfWorld] Saved individual chunk: {individual_chunk_path}.mp4")
                     chunk_paths.append(individual_chunk_path + ".mp4")
 
@@ -519,7 +519,7 @@ def main():
                     # Save cumulative video (all frames up to this chunk)
                     cumulative_chunk_name = f"{file_prefix:04d}_{stem}_seed{sample_seed}_chunk{chunk_idx:03d}_cumulative"
                     cumulative_chunk_path = os.path.join(task_subdir, cumulative_chunk_name)
-                    save_silent_video(video_buffer.to(local_rank), cumulative_chunk_path, fps=30, quality=quality)
+                    save_silent_video(video_buffer.to(local_rank), cumulative_chunk_path, fps=20, quality=quality)
                     print(f"[InfWorld] Saved cumulative: {cumulative_chunk_path}.mp4")
                     chunk_paths.append(cumulative_chunk_path + ".mp4")
 
@@ -530,7 +530,7 @@ def main():
             stem = prompt[:30].replace(' ', '_')
             quality = 10 if HIGH_QUALITY_SAVE else 5
             save_path = os.path.join(task_subdir, f"{file_prefix:04d}_{stem}_seed{sample_seed}")
-            save_silent_video(video_buffer.to(local_rank), save_path, fps=30, quality=quality)
+            save_silent_video(video_buffer.to(local_rank), save_path, fps=20, quality=quality)
             print(f"[InfWorld] Saved: {save_path}.mp4")
 
             # Delete intermediate chunk files now that final video is written
@@ -545,7 +545,7 @@ def main():
                 os.makedirs(cmd_args.vbench_output_dir, exist_ok=True)
                 vbench_name = f"{prompt}-{vbench_idx}-{sample_seed}"
                 vbench_path = os.path.join(cmd_args.vbench_output_dir, vbench_name)
-                save_silent_video(video_buffer.to(local_rank), vbench_path, fps=30, quality=quality)
+                save_silent_video(video_buffer.to(local_rank), vbench_path, fps=20, quality=quality)
                 print(f"[InfWorld] Saved VBench: {vbench_path}.mp4")
 
 if __name__ == "__main__":
