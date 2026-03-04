@@ -244,6 +244,8 @@ def main():
                         help='Directory to save VBench-named videos ({prompt}-{index}.mp4)')
     parser.add_argument('--type', type=str, default='scenery,indoor',
                         help='Comma-separated image_type values to include, e.g. "scenery,indoor" (default: scenery,indoor)')
+    parser.add_argument('--fps', type=int, default=20,
+                        help='Frames per second for saved videos (default: 20)')
     cmd_args = parser.parse_args()
 
     print("[InfWorld] Flags:")
@@ -349,7 +351,8 @@ def main():
 
     allowed_types = {t.strip() for t in cmd_args.type.split(",") if t.strip()} if cmd_args.type else None
 
-    base_seed = cmd_args.seed if cmd_args.seed is not None else GLOBAL_SEED
+    base_seed = cmd_args.seed if cmd_args.seed is not None else random.randint(0, 2**31 - 1)
+    print(f"[InfWorld] Seed: {base_seed}")
     num_samples = cmd_args.num_samples
 
     # Pre-scan: report which prompts are already complete / skipped
@@ -507,7 +510,7 @@ def main():
                     # Save individual chunk (only new frames)
                     individual_chunk_name = f"{file_prefix:04d}_{stem}_seed{sample_seed}_chunk{chunk_idx:03d}_individual"
                     individual_chunk_path = os.path.join(task_subdir, individual_chunk_name)
-                    save_silent_video(decoded_chunk.to(local_rank), individual_chunk_path, fps=20, quality=quality)
+                    save_silent_video(decoded_chunk.to(local_rank), individual_chunk_path, fps=cmd_args.fps, quality=quality)
                     print(f"[InfWorld] Saved individual chunk: {individual_chunk_path}.mp4")
                     chunk_paths.append(individual_chunk_path + ".mp4")
 
@@ -519,7 +522,7 @@ def main():
                     # Save cumulative video (all frames up to this chunk)
                     cumulative_chunk_name = f"{file_prefix:04d}_{stem}_seed{sample_seed}_chunk{chunk_idx:03d}_cumulative"
                     cumulative_chunk_path = os.path.join(task_subdir, cumulative_chunk_name)
-                    save_silent_video(video_buffer.to(local_rank), cumulative_chunk_path, fps=20, quality=quality)
+                    save_silent_video(video_buffer.to(local_rank), cumulative_chunk_path, fps=cmd_args.fps, quality=quality)
                     print(f"[InfWorld] Saved cumulative: {cumulative_chunk_path}.mp4")
                     chunk_paths.append(cumulative_chunk_path + ".mp4")
 
@@ -530,7 +533,7 @@ def main():
             stem = prompt[:30].replace(' ', '_')
             quality = 10 if HIGH_QUALITY_SAVE else 5
             save_path = os.path.join(task_subdir, f"{file_prefix:04d}_{stem}_seed{sample_seed}")
-            save_silent_video(video_buffer.to(local_rank), save_path, fps=20, quality=quality)
+            save_silent_video(video_buffer.to(local_rank), save_path, fps=cmd_args.fps, quality=quality)
             print(f"[InfWorld] Saved: {save_path}.mp4")
 
             # Delete intermediate chunk files now that final video is written
@@ -545,7 +548,7 @@ def main():
                 os.makedirs(cmd_args.vbench_output_dir, exist_ok=True)
                 vbench_name = f"{prompt}-{vbench_idx}-{sample_seed}"
                 vbench_path = os.path.join(cmd_args.vbench_output_dir, vbench_name)
-                save_silent_video(video_buffer.to(local_rank), vbench_path, fps=20, quality=quality)
+                save_silent_video(video_buffer.to(local_rank), vbench_path, fps=cmd_args.fps, quality=quality)
                 print(f"[InfWorld] Saved VBench: {vbench_path}.mp4")
 
 if __name__ == "__main__":
