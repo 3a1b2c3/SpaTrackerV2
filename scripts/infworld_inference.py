@@ -234,7 +234,31 @@ def main():
                         help='Number of video chunks to generate (default: 2)')
     parser.add_argument('--low_memory', action='store_true',
                         help='Enable low memory mode (reduces quality/steps for lower VRAM usage)')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed (default: 42)')
+    parser.add_argument('--num_samples', type=int, default=5,
+                        help='Number of samples to generate per prompt (default: 5)')
+    parser.add_argument('--vbench_index', type=int, default=None,
+                        help='VBench sample index (legacy single-run mode); ignored when --num_samples > 1')
+    parser.add_argument('--vbench_output_dir', type=str, default=None,
+                        help='Directory to save VBench-named videos ({prompt}-{index}.mp4)')
+    parser.add_argument('--type', type=str, default='scenery,indoor',
+                        help='Comma-separated image_type values to include, e.g. "scenery,indoor" (default: scenery,indoor)')
     cmd_args = parser.parse_args()
+
+    print("[InfWorld] Flags:")
+    print(f"  --config           {cmd_args.config or '(default)'}")
+    print(f"  --prompts          {cmd_args.prompts or '(default)'}")
+    print(f"  --num_chunks       {cmd_args.num_chunks or '(default)'}")
+    print(f"  --num_samples      {cmd_args.num_samples}")
+    print(f"  --seed             {cmd_args.seed or '(default)'}")
+    print(f"  --low_memory       {cmd_args.low_memory}")
+    print(f"  --vbench_output_dir {cmd_args.vbench_output_dir or '(none)'}")
+    print(f"  --type{cmd_args.type}")
+
+    # Override seed if provided
+    if cmd_args.seed is not None:
+        setup_seed(cmd_args.seed + global_rank)
 
     # Update NUM_CHUNKS if provided via command line
     if cmd_args.num_chunks is not None:
@@ -322,111 +346,194 @@ def main():
     prompts_path = resolve_path(prompts_path)
     target_prompts = OmegaConf.load(prompts_path).prompts
     print(f"[InfWorld] Loaded {len(target_prompts)} prompts from: {prompts_path}")
-    
+
+    allowed_types = {t.strip() for t in cmd_args.type.split(",") if t.strip()} if cmd_args.type else None
+
+    base_seed = cmd_args.seed if cmd_args.seed is not None else GLOBAL_SEED
+    num_samples = cmd_args.num_samples
+
+    # Pre-scan: report which prompts are already complete / skipped
+    if cmd_args.vbench_output_dir:
+        n_type_skip = n_already_done = n_partial = n_todo = 0
+        for _idx, _entry in enumerate(target_prompts):
+            _entry = list(_entry)
+            _prompt = _entry[0]
+            _image_type = _entry[3] if len(_entry) > 3 else ""
+            if allowed_types is not None and _image_type not in allowed_types:
+                n_type_skip += 1
+                continue
+            done = sum(
+                1 for si in range(num_samples)
+                if os.path.exists(os.path.join(cmd_args.vbench_output_dir, f"{_prompt}-{si}.mp4"))
+            )
+            if done == num_samples:
+                print(f"[InfWorld] Exists task {_idx:4d} ({done}/{num_samples}): {_prompt[:70]}")
+                n_already_done += 1
+            elif done > 0:
+                print(f"[InfWorld] Partial task {_idx:4d} ({done}/{num_samples}): {_prompt[:70]}")
+                n_partial += 1
+            else:
+                n_todo += 1
+        print(f"[InfWorld] Pre-scan: {len(target_prompts)} total | "
+              f"{n_type_skip} type-filtered | {n_already_done} done | "
+              f"{n_partial} partial | {n_todo} to generate")
+
     # Process each prompt
-    for task_idx, (prompt, image_path, action_path) in enumerate(target_prompts):
+    for task_idx, entry in enumerate(target_prompts):
+        entry = list(entry)
+        prompt, image_path, action_path = entry[0], entry[1], entry[2]
+        image_type = entry[3] if len(entry) > 3 else ""
+
+        if allowed_types is not None and image_type not in allowed_types:
+            print(f"[InfWorld] Skipping task {task_idx} (type={image_type!r} not in {allowed_types}): {prompt[:50]}")
+            continue
         if task_idx % dp_size != dp_rank:
             continue
-        
+
         if not os.path.exists(image_path):
             print(f"[InfWorld] Skipping task {task_idx}: Image not found - {image_path}")
             continue
-        
+
         if not os.path.exists(action_path):
             print(f"[InfWorld] Skipping task {task_idx}: Action not found - {action_path}")
             continue
-        
+
         print(f"[InfWorld] Task {task_idx}: {prompt[:50]}...")
-        
-        # Load condition image
+
+        # Per-task output subdirectory
+        task_subdir = os.path.join(output_dir, f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}")
+        if os.path.isdir(task_subdir):
+            print(f"[InfWorld] Skipping task {task_idx}: subdir exists — {task_subdir}")
+            continue
+        os.makedirs(task_subdir, exist_ok=True)
+
+        # Load condition image and encode once per prompt (shared across samples)
         cond_video = load_condition_image(image_path, bucket_config).to(local_rank)
-        
+
         with torch.no_grad():
             cond_latent = vae.encode(cond_video)
-        
+
         # Load action sequence
         move_indices, view_indices = load_action_sequence(action_path)
-        
-        # Initialize video buffer
-        video_buffer = cond_video.clone().cpu()
-        
+
         # Latent size for generation
         latent_size = list(cond_latent.shape)
         latent_size[2] = 21  # Output frames per chunk
         latent_size = torch.Size(latent_size)
-        
-        # Generate video chunks
-        for chunk_idx in range(NUM_CHUNKS):
-            print(f"[InfWorld] Generating chunk {chunk_idx + 1}/{NUM_CHUNKS}")
 
-            with torch.no_grad():
-                current_cond = video_buffer.to(local_rank)
-                current_latent = vae.encode(current_cond)
+        for sample_idx in range(num_samples):
+            # Determine VBench index: multi-sample uses sample_idx, legacy single-run uses vbench_index arg
+            vbench_idx = sample_idx if num_samples > 1 else cmd_args.vbench_index
 
-            # Get action slice for current chunkNUM_CHUNKS
-            curr_start = video_buffer.shape[2] - 1
-            curr_end = curr_start + args.validation_data.num_frames
+            # Skip if VBench output already exists
+            if cmd_args.vbench_output_dir and vbench_idx is not None:
+                vbench_path = os.path.join(cmd_args.vbench_output_dir, f"{prompt}-{vbench_idx}-{base_seed + vbench_idx}.mp4")
+                if os.path.exists(vbench_path):
+                    print(f"[InfWorld] Skipping task {task_idx} sample {vbench_idx}: already exists")
+                    continue
 
-            move = torch.tensor(move_indices[curr_start:curr_end], dtype=torch.long, device=local_rank)
-            view = torch.tensor(view_indices[curr_start:curr_end], dtype=torch.long, device=local_rank)
+            print(f"[InfWorld] Task {task_idx} sample {sample_idx + 1}/{num_samples}...")
 
-            # Pad if needed
-            num_frames = args.validation_data.num_frames
-            if move.shape[0] < num_frames:
-                pad_len = num_frames - move.shape[0]
-                move = torch.cat([move, torch.zeros(pad_len, dtype=torch.long, device=local_rank)])
-                view = torch.cat([view, torch.zeros(pad_len, dtype=torch.long, device=local_rank)])
+            # Set seed per sample for reproducible diversity
+            sample_seed = base_seed + sample_idx
+            setup_seed(sample_seed + global_rank)
 
-            additional_args = {
-                "image_cond": current_latent,
-                "move": move.unsqueeze(0),
-                "view": view.unsqueeze(0),
-            }
+            # Reset video buffer for each sample
+            video_buffer = cond_video.clone().cpu()
 
-            torch_gc()
+            # Generate video chunks
+            chunk_paths = []
+            for chunk_idx in range(NUM_CHUNKS):
+                print(f"[InfWorld] Generating chunk {chunk_idx + 1}/{NUM_CHUNKS}")
 
-            with torch.no_grad():
-                samples = scheduler.sample(
-                    model=dit,
-                    text_encoder=text_encoder,
-                    null_embedder=dit.y_embedder,
-                    z_size=latent_size,
-                    prompts=[prompt],
-                    guidance_scale=TEXT_CFG_SCALE,
-                    negative_prompts=[NEGATIVE_PROMPT],
-                    device=torch.device(local_rank),
-                    additional_args=additional_args,
-                )
+                with torch.no_grad():
+                    current_cond = video_buffer.to(local_rank)
+                    current_latent = vae.encode(current_cond)
 
-                decoded_chunk = vae.decode(samples).cpu()
+                # Get action slice for current chunk
+                curr_start = video_buffer.shape[2] - 1
+                curr_end = curr_start + args.validation_data.num_frames
 
-                # Save individual chunk (only new frames)
-                individual_chunk_name = f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}_chunk{chunk_idx:03d}_individual"
-                individual_chunk_path = os.path.join(output_dir, individual_chunk_name)
-                quality = 10 if HIGH_QUALITY_SAVE else 5
-                save_silent_video(decoded_chunk.to(local_rank), individual_chunk_path, fps=30, quality=quality)
-                print(f"[InfWorld] Saved individual chunk: {individual_chunk_path}.mp4")
+                move = torch.tensor(move_indices[curr_start:curr_end], dtype=torch.long, device=local_rank)
+                view = torch.tensor(view_indices[curr_start:curr_end], dtype=torch.long, device=local_rank)
 
-                # Append to cumulative buffer
-                video_buffer = torch.cat([video_buffer, decoded_chunk[:, :, 1:]], dim=2)
+                # Pad if needed
+                num_frames = args.validation_data.num_frames
+                if move.shape[0] < num_frames:
+                    pad_len = num_frames - move.shape[0]
+                    move = torch.cat([move, torch.zeros(pad_len, dtype=torch.long, device=local_rank)])
+                    view = torch.cat([view, torch.zeros(pad_len, dtype=torch.long, device=local_rank)])
 
-                print(f"[InfWorld] Chunk {chunk_idx + 1} done. Total frames: {video_buffer.shape[2]}")
-
-                # Save cumulative video (all frames up to this chunk)
-                cumulative_chunk_name = f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}_chunk{chunk_idx:03d}_cumulative"
-                cumulative_chunk_path = os.path.join(output_dir, cumulative_chunk_name)
-                save_silent_video(video_buffer.to(local_rank), cumulative_chunk_path, fps=30, quality=quality)
-                print(f"[InfWorld] Saved cumulative: {cumulative_chunk_path}.mp4")
+                additional_args = {
+                    "image_cond": current_latent,
+                    "move": move.unsqueeze(0),
+                    "view": view.unsqueeze(0),
+                }
 
                 torch_gc()
-        
-        # Save final video
-        video_name = f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}"
-        save_path = os.path.join(output_dir, video_name)
-        
-        quality = 10 if HIGH_QUALITY_SAVE else 5
-        save_silent_video(video_buffer.to(local_rank), save_path, fps=30, quality=quality)
-        print(f"[InfWorld] Saved: {save_path}.mp4")
+
+                with torch.no_grad():
+                    samples = scheduler.sample(
+                        model=dit,
+                        text_encoder=text_encoder,
+                        null_embedder=dit.y_embedder,
+                        z_size=latent_size,
+                        prompts=[prompt],
+                        guidance_scale=TEXT_CFG_SCALE,
+                        negative_prompts=[NEGATIVE_PROMPT],
+                        device=torch.device(local_rank),
+                        additional_args=additional_args,
+                    )
+
+                    decoded_chunk = vae.decode(samples).cpu()
+
+                    file_prefix = vbench_idx if vbench_idx is not None else task_idx
+                    stem = prompt[:30].replace(' ', '_')
+                    quality = 10 if HIGH_QUALITY_SAVE else 5
+
+                    # Save individual chunk (only new frames)
+                    individual_chunk_name = f"{file_prefix:04d}_{stem}_seed{sample_seed}_chunk{chunk_idx:03d}_individual"
+                    individual_chunk_path = os.path.join(task_subdir, individual_chunk_name)
+                    save_silent_video(decoded_chunk.to(local_rank), individual_chunk_path, fps=30, quality=quality)
+                    print(f"[InfWorld] Saved individual chunk: {individual_chunk_path}.mp4")
+                    chunk_paths.append(individual_chunk_path + ".mp4")
+
+                    # Append to cumulative buffer
+                    video_buffer = torch.cat([video_buffer, decoded_chunk[:, :, 1:]], dim=2)
+
+                    print(f"[InfWorld] Chunk {chunk_idx + 1} done. Total frames: {video_buffer.shape[2]}")
+
+                    # Save cumulative video (all frames up to this chunk)
+                    cumulative_chunk_name = f"{file_prefix:04d}_{stem}_seed{sample_seed}_chunk{chunk_idx:03d}_cumulative"
+                    cumulative_chunk_path = os.path.join(task_subdir, cumulative_chunk_name)
+                    save_silent_video(video_buffer.to(local_rank), cumulative_chunk_path, fps=30, quality=quality)
+                    print(f"[InfWorld] Saved cumulative: {cumulative_chunk_path}.mp4")
+                    chunk_paths.append(cumulative_chunk_path + ".mp4")
+
+                    torch_gc()
+
+            # Save final video
+            file_prefix = vbench_idx if vbench_idx is not None else task_idx
+            stem = prompt[:30].replace(' ', '_')
+            quality = 10 if HIGH_QUALITY_SAVE else 5
+            save_path = os.path.join(task_subdir, f"{file_prefix:04d}_{stem}_seed{sample_seed}")
+            save_silent_video(video_buffer.to(local_rank), save_path, fps=30, quality=quality)
+            print(f"[InfWorld] Saved: {save_path}.mp4")
+
+            # Delete intermediate chunk files now that final video is written
+            for p in chunk_paths:
+                try:
+                    os.remove(p)
+                except FileNotFoundError:
+                    pass
+
+            # VBench-compatible save: {prompt}-{index}.mp4 in flat output dir
+            if vbench_idx is not None and cmd_args.vbench_output_dir:
+                os.makedirs(cmd_args.vbench_output_dir, exist_ok=True)
+                vbench_name = f"{prompt}-{vbench_idx}-{sample_seed}"
+                vbench_path = os.path.join(cmd_args.vbench_output_dir, vbench_name)
+                save_silent_video(video_buffer.to(local_rank), vbench_path, fps=30, quality=quality)
+                print(f"[InfWorld] Saved VBench: {vbench_path}.mp4")
 
 if __name__ == "__main__":
     main()

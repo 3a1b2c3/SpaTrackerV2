@@ -1,11 +1,11 @@
 @echo off
 :: Infinite World - VBench Crop Dataset Batch Inference
 :: Runs inference on all images in the VBench crop dataset and writes timing stats to txt.
-:: Usage: infer_local_vbench.bat [checkpoint_dir] [action_path] [output_base] [config_yaml] [num_chunks] [low_memory] [max_aspects] [image_types] [num_samples]
-:: Runs inference num_samples times per image (VBench requires 5), writes {prompt}-{0..N-1}.mp4 to output_base\videos\
+:: Usage: infer_local_vbench.bat [checkpoint_dir] [action_path] [output_base] [config_yaml] [num_chunks] [low_memory] [max_aspects] [image_types] [num_samples] [base_seed] [dimension]
+:: Runs inference num_samples times per image (VBench requires 5), writes {caption}-{0..N-1}.mp4 to output_base\videos\
 :: image_types: comma-separated filter e.g. "background,scenery,abstract" (default: all types)
 :: Skips already-generated videos automatically.
-:: Example: infer_local_vbench.bat .\checkpoints .\assets\example_case\0001.json .\out\vbench "" 2 1 1 "background,scenery" 5
+:: Example: infer_local_vbench.bat .\checkpoints .\assets\example_case\0001.json .\out\vbench "" 2 1 1 "background,scenery" 5 42
 
 setlocal enabledelayedexpansion
 
@@ -34,11 +34,17 @@ echo   7  max_aspects      Max aspect ratio variants             (default: 1)
 echo   8  image_types      Comma-separated type filter           (default: all)
 echo                         e.g. "background,scenery,abstract"
 echo   9  num_samples      Videos to generate per prompt         (default: 5)
+echo   10 base_seed        Base random seed; incremented per     (default: 42)
+echo                         sample (base_seed+0 .. base_seed+N-1)
+echo   11 dimension         VBench image type filter passed to    (default: all)
+echo                         infworld_inference --type
+echo                         e.g. "scenery,indoor" or "all" for no filter
 echo.
 echo Notes:
 echo   - VBench requires 5 samples per prompt (num_samples=5)
 echo   - Already-generated videos are skipped automatically
-echo   - Outputs: {output_base}\videos\{prompt}-{0..N-1}.mp4
+echo   - Outputs: {output_base}\videos_{base_seed}\{caption}-{0..N-1}.mp4
+echo             e.g. a table and chairs in a room with sunlight coming through the window-4.mp4
 echo   - Log:     {output_base}\vbench_run.log
 echo   - Stats:   {output_base}\vbench_stats.txt
 echo.
@@ -64,10 +70,13 @@ if "%MAX_ASPECTS%"=="" set MAX_ASPECTS=1
 set IMAGE_TYPES=%~8
 set NUM_SAMPLES=%9
 if "%NUM_SAMPLES%"=="" set NUM_SAMPLES=5
+:: Args 10+ cannot be read via %~10/%~11 in Windows batch (%~10 = %~1 + "0")
+:: BASE_SEED is always randomised; pass --type via IMAGE_TYPES (arg 8) instead
+set /a BASE_SEED=%RANDOM% * 32768 + %RANDOM%
 
 set CROP_DIR=C:\workspace\world\VBench\vbench2_beta_i2v\vbench2_beta_i2v\data\crop
 set PROMPTS_YAML=%OUTPUT_BASE%\vbench_prompts.yaml
-set VBENCH_OUTPUT_DIR=%OUTPUT_BASE%\videos
+set VBENCH_OUTPUT_DIR=%OUTPUT_BASE%\videos_%BASE_SEED%
 set STATS_FILE=%OUTPUT_BASE%\vbench_stats.txt
 set LOG_FILE=%OUTPUT_BASE%\vbench_run.log
 
@@ -79,7 +88,8 @@ echo ==============================================
 echo Crop dir:    %CROP_DIR%
 echo Action path: %ACTION_PATH%
 echo Output base: %OUTPUT_BASE%
-echo Num chunks:  %NUM_CHUNKS%
+set /a _VF=1+NUM_CHUNKS*80
+echo Num chunks:  %NUM_CHUNKS%  ^(= %_VF% video frames: 1 + %NUM_CHUNKS%x80^)
 if not "%IMAGE_TYPES%"=="" echo Image types: %IMAGE_TYPES%
 if "%LOW_MEMORY%"=="1" echo Low memory:  ENABLED
 
@@ -114,7 +124,8 @@ set START_TIME=%TIME%
 for /f "tokens=1-4 delims=:., " %%a in ("%TIME: =0%") do set /a START_S=(1%%a-100)*3600+(1%%b-100)*60+(1%%c-100)
 
 :: Build optional args
-set OPTIONAL_ARGS=--prompts "%PROMPTS_YAML%" --num_chunks %NUM_CHUNKS% --num_samples %NUM_SAMPLES%
+set OPTIONAL_ARGS=--prompts "%PROMPTS_YAML%" --num_chunks %NUM_CHUNKS% --num_samples %NUM_SAMPLES% --seed %BASE_SEED%
+if not "%IMAGE_TYPES%"=="" set OPTIONAL_ARGS=%OPTIONAL_ARGS% --type "%IMAGE_TYPES%"
 if not "%CONFIG_YAML%"=="" set OPTIONAL_ARGS=%OPTIONAL_ARGS% --config "%CONFIG_YAML%"
 if "%LOW_MEMORY%"=="1" set OPTIONAL_ARGS=%OPTIONAL_ARGS% --low_memory
 
@@ -177,6 +188,7 @@ echo ==============================================
     echo Checkpoint:     %CHECKPOINT_DIR%
     echo Num chunks:     %NUM_CHUNKS%
     echo Low memory:     %LOW_MEMORY%
+    echo Dimension:      %DIMENSION%
     echo.
     echo === Performance ===
     echo Num samples:    %NUM_SAMPLES%
@@ -189,6 +201,7 @@ echo ==============================================
     echo.
     echo === Output ===
     echo Output base:    %OUTPUT_BASE%
+    echo Seed:           %BASE_SEED%
     echo VBench videos:  %VBENCH_OUTPUT_DIR%
     echo Log:            %LOG_FILE%
 ) > "%STATS_FILE%"
