@@ -379,6 +379,10 @@ def main():
               f"{n_partial} partial | {n_todo} to generate")
 
     # Process each prompt
+    _progress_done = 0
+    _progress_total = n_todo + n_partial if cmd_args.vbench_output_dir else len(target_prompts)
+    _progress_t0 = datetime.datetime.now()
+
     for task_idx, entry in enumerate(target_prompts):
         entry = list(entry)
         prompt, image_path, action_path = entry[0], entry[1], entry[2]
@@ -398,7 +402,16 @@ def main():
             print(f"[InfWorld] Skipping task {task_idx}: Action not found - {action_path}")
             continue
 
-        print(f"[InfWorld] Task {task_idx}: {prompt[:50]}...")
+        _progress_done += 1
+        _elapsed = (datetime.datetime.now() - _progress_t0).total_seconds()
+        if _progress_done > 1 and _elapsed > 0:
+            _avg = _elapsed / (_progress_done - 1)
+            _remaining = _progress_total - _progress_done + 1
+            _eta_s = int(_avg * _remaining)
+            _eta = f"{_eta_s // 3600}h {(_eta_s % 3600) // 60}m {_eta_s % 60}s"
+        else:
+            _eta = "?"
+        print(f"[InfWorld] [{_progress_done}/{_progress_total}] Task {task_idx} | ETA {_eta} | {prompt[:50]}...")
 
         # Per-task output subdirectory
         task_subdir = os.path.join(output_dir, f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}")
