@@ -7,6 +7,7 @@ A standalone inference script for generating long videos with action control.
 import argparse
 import sys
 import os
+import csv
 import cv2
 import math
 import torch
@@ -15,6 +16,7 @@ import json
 import datetime
 import importlib
 import numpy as np
+import psutil
 from PIL import Image
 from omegaconf import OmegaConf
 import torch.distributed as dist
@@ -396,6 +398,19 @@ def main():
     _progress_done = 0
     _progress_total = n_todo + n_partial if cmd_args.vbench_output_dir else len(target_prompts)
     _progress_t0 = datetime.datetime.now()
+    _video_count = 0
+    _video_total_elapsed = 0.0
+    _stats_path = (
+        os.path.join(os.path.dirname(cmd_args.vbench_output_dir), "vbench_gen_stats.csv")
+        if cmd_args.vbench_output_dir else None
+    )
+    if _stats_path and not os.path.exists(_stats_path):
+        with open(_stats_path, "w", newline="") as _sf:
+            csv.writer(_sf).writerow([
+                "timestamp", "video_count", "elapsed_s", "gen_fps",
+                "avg_s_per_video", "total_frames", "total_elapsed_s",
+                "ram_used_gb", "ram_total_gb", "gpu_used_gb", "gpu_total_gb",
+            ])
 
     for task_idx, entry in enumerate(target_prompts):
         entry = list(entry)
@@ -416,16 +431,8 @@ def main():
             print(f"[InfWorld] Skipping task {task_idx}: Action not found - {action_path}")
             continue
 
-        _progress_done += 1
-        _elapsed = (datetime.datetime.now() - _progress_t0).total_seconds()
-        if _progress_done > 1 and _elapsed > 0:
-            _avg = _elapsed / (_progress_done - 1)
-            _remaining = _progress_total - _progress_done + 1
-            _eta_s = int(_avg * _remaining)
-            _eta = f"{_eta_s // 3600}h {(_eta_s % 3600) // 60}m {_eta_s % 60}s"
-        else:
-            _eta = "?"
-        print(f"[InfWorld] [{_progress_done}/{_progress_total}] Task {task_idx} | ETA {_eta} | {prompt[:50]}...")
+        print(f"[InfWorld] [{_progress_done}/{_progress_total}] Task {task_idx} | {prompt[:50]}...")
+        _task_t0 = datetime.datetime.now()
 
         # Per-task output subdirectory
         task_subdir = os.path.join(output_dir, f"{task_idx:04d}_{prompt[:30].replace(' ', '_')}")
@@ -467,6 +474,7 @@ def main():
 
             # Reset video buffer for each sample
             video_buffer = cond_video.clone().cpu()
+            _video_t0 = datetime.datetime.now()
 
             # Generate video chunks
             chunk_paths = []
@@ -547,6 +555,33 @@ def main():
             save_silent_video(video_buffer.to(local_rank), save_path, fps=cmd_args.fps, quality=quality)
             print(f"[InfWorld] Saved: {save_path}.mp4")
 
+            # Update live stats after every video
+            _video_elapsed = (datetime.datetime.now() - _video_t0).total_seconds()
+            _video_count += 1
+            _video_total_elapsed += _video_elapsed
+            _avg_s = _video_total_elapsed / _video_count
+            _total_frames = video_buffer.shape[2]
+            _gen_fps = _total_frames / _video_elapsed if _video_elapsed > 0 else 0.0
+            print(f"[InfWorld] Stats: video {_video_count} | {_video_elapsed:.1f}s | {_gen_fps:.2f} gen_fps | avg {_avg_s:.1f}s/video")
+            if _stats_path:
+                _mem = psutil.virtual_memory()
+                _gpu_used = torch.cuda.memory_allocated(local_rank) / 1e9
+                _gpu_total = torch.cuda.get_device_properties(local_rank).total_memory / 1e9
+                with open(_stats_path, "a", newline="") as _sf:
+                    csv.writer(_sf).writerow([
+                        datetime.datetime.now().isoformat(),
+                        _video_count,
+                        f"{_video_elapsed:.2f}",
+                        f"{_gen_fps:.2f}",
+                        f"{_avg_s:.2f}",
+                        _total_frames,
+                        f"{_video_total_elapsed:.1f}",
+                        f"{_mem.used / 1e9:.2f}",
+                        f"{_mem.total / 1e9:.2f}",
+                        f"{_gpu_used:.2f}",
+                        f"{_gpu_total:.2f}",
+                    ])
+
             # Delete intermediate chunk files now that final video is written
             for p in chunk_paths:
                 try:
@@ -561,6 +596,19 @@ def main():
                 vbench_path = os.path.join(cmd_args.vbench_output_dir, vbench_name)
                 save_silent_video(video_buffer.to(local_rank), vbench_path, fps=cmd_args.fps, quality=quality)
                 print(f"[InfWorld] Saved VBench: {vbench_path}.mp4")
+
+            # Update progress stats after video is fully written
+            _progress_done += 1
+            _task_elapsed = (datetime.datetime.now() - _task_t0).total_seconds()
+            _elapsed = (datetime.datetime.now() - _progress_t0).total_seconds()
+            if _progress_done > 0 and _elapsed > 0:
+                _avg = _elapsed / _progress_done
+                _remaining = _progress_total - _progress_done
+                _eta_s = int(_avg * _remaining)
+                _eta = f"{_eta_s // 3600}h {(_eta_s % 3600) // 60}m {_eta_s % 60}s"
+            else:
+                _eta = "?"
+            print(f"[InfWorld] [{_progress_done}/{_progress_total}] Done | task={_task_elapsed:.0f}s | ETA {_eta}")
 
 if __name__ == "__main__":
     main()

@@ -76,7 +76,7 @@ set /a BASE_SEED=%RANDOM% * 32768 + %RANDOM%
 
 set CROP_DIR=C:\workspace\world\VBench\vbench2_beta_i2v\vbench2_beta_i2v\data\crop
 set PROMPTS_YAML=%OUTPUT_BASE%\vbench_prompts.yaml
-set VBENCH_OUTPUT_DIR=%OUTPUT_BASE%\videos_%BASE_SEED%
+set VBENCH_OUTPUT_DIR=%OUTPUT_BASE%\videos
 set STATS_FILE=%OUTPUT_BASE%\vbench_stats.txt
 set LOG_FILE=%OUTPUT_BASE%\vbench_run.log
 
