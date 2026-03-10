@@ -73,7 +73,7 @@ set NUM_SAMPLES=%9
 if "%NUM_SAMPLES%"=="" set NUM_SAMPLES=5
 :: Args 10+ cannot be read via %~10/%~11 in Windows batch (%~10 = %~1 + "0")
 :: BASE_SEED is always randomised; pass --type via IMAGE_TYPES (arg 8) instead
-set BASE_SEED=42
+set BASE_SEED=478163327
 
 set CROP_DIR=C:\workspace\world\VBench\vbench2_beta_i2v\vbench2_beta_i2v\data\crop
 set PROMPTS_YAML=%OUTPUT_BASE%\vbench_prompts.yaml
