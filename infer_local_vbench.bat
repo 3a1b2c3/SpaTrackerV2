@@ -61,7 +61,8 @@ set ACTION_PATH=%2
 if "%ACTION_PATH%"=="" set ACTION_PATH=.\assets\example_case\0001.json
 set OUTPUT_BASE=%3
 if "%OUTPUT_BASE%"=="" set OUTPUT_BASE=.\out\vbench
-set CONFIG_YAML=%4
+set CONFIG_YAML=%~4
+if defined CONFIG_YAML if not exist "%CONFIG_YAML%" set CONFIG_YAML=
 set NUM_CHUNKS=%5
 if "%NUM_CHUNKS%"=="" set NUM_CHUNKS=2
 set LOW_MEMORY=%6
@@ -72,7 +73,7 @@ set NUM_SAMPLES=%9
 if "%NUM_SAMPLES%"=="" set NUM_SAMPLES=5
 :: Args 10+ cannot be read via %~10/%~11 in Windows batch (%~10 = %~1 + "0")
 :: BASE_SEED is always randomised; pass --type via IMAGE_TYPES (arg 8) instead
-set /a BASE_SEED=%RANDOM% * 32768 + %RANDOM%
+set BASE_SEED=42
 
 set CROP_DIR=C:\workspace\world\VBench\vbench2_beta_i2v\vbench2_beta_i2v\data\crop
 set PROMPTS_YAML=%OUTPUT_BASE%\vbench_prompts.yaml
@@ -99,7 +100,7 @@ if "%LOW_MEMORY%"=="1" echo Low memory:  ENABLED
 echo.
 echo Generating prompts YAML...
 
-python scripts\gen_vbench_prompts.py "%CROP_DIR%" "%ACTION_PATH%" "%PROMPTS_YAML%" "%IMAGE_TYPES%" > "%OUTPUT_BASE%\img_count.tmp" 2>&1
+python "%~dp0scripts\gen_vbench_prompts.py" "%CROP_DIR%" "%ACTION_PATH%" "%PROMPTS_YAML%" "%IMAGE_TYPES%" > "%OUTPUT_BASE%\img_count.tmp" 2>&1
 set /p NUM_IMAGES=<"%OUTPUT_BASE%\img_count.tmp"
 del "%OUTPUT_BASE%\img_count.tmp"
 
@@ -134,7 +135,7 @@ type nul > "%LOG_FILE%"
 
 echo.
 echo [VBench] Generating %NUM_SAMPLES% samples per prompt...
-python scripts\infworld_inference.py %OPTIONAL_ARGS% --vbench_output_dir "%VBENCH_OUTPUT_DIR%" 2>&1 | powershell -Command "$input | Tee-Object -Append -FilePath '%LOG_FILE%'"
+python "%~dp0scripts\infworld_inference.py" %OPTIONAL_ARGS% --vbench_output_dir "%VBENCH_OUTPUT_DIR%" 2>&1 | powershell -Command "$input | Tee-Object -Append -FilePath '%LOG_FILE%'"
 set EXIT_CODE=%ERRORLEVEL%
 echo [VBench] Done. Exit: %EXIT_CODE%
 

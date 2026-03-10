@@ -11,6 +11,10 @@ import csv
 import cv2
 import math
 import torch
+torch.backends.cuda.enable_flash_sdp(True)
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cudnn.benchmark = True          # auto-tune conv kernels for fixed shapes
+torch.set_float32_matmul_precision("high")     # use TF32 on Ampere+ for matmuls
 import random
 import json
 import datetime
@@ -351,7 +355,9 @@ def main():
     print(f"[InfWorld] Model loaded! Missing: {len(missing)}, Unexpected: {len(unexpected)}")
     
     dit.to(local_rank)
-    
+    vae.to(dtype)
+    text_encoder.t5.model.to(dtype)
+
     # Load bucket config
     from infworld.configs import bucket_config as bucket_config_module
     bucket_config = getattr(bucket_config_module, BUCKET_CONFIG_NAME)
@@ -412,6 +418,17 @@ def main():
                 "ram_used_gb", "ram_total_gb", "gpu_used_gb", "gpu_total_gb",
             ])
 
+    _vstats_path = (
+        os.path.join(os.path.dirname(cmd_args.vbench_output_dir), "vbench_stats.csv")
+        if cmd_args.vbench_output_dir else None
+    )
+    if _vstats_path and not os.path.exists(_vstats_path):
+        with open(_vstats_path, "w", newline="") as _sf:
+            csv.writer(_sf).writerow([
+                "task_idx", "prompt", "sample_idx", "duration_s", "gen_fps",
+                "ram_gb", "vram_gb", "out_path", "status",
+            ])
+
     for task_idx, entry in enumerate(target_prompts):
         entry = list(entry)
         prompt, image_path, action_path = entry[0], entry[1], entry[2]
@@ -464,6 +481,9 @@ def main():
                 vbench_path = os.path.join(cmd_args.vbench_output_dir, f"{prompt}-{vbench_idx}-{base_seed + vbench_idx}.mp4")
                 if os.path.exists(vbench_path):
                     print(f"[InfWorld] Skipping task {task_idx} sample {vbench_idx}: already exists")
+                    if _vstats_path:
+                        with open(_vstats_path, "a", newline="") as _sf:
+                            csv.writer(_sf).writerow([task_idx, prompt, vbench_idx, "", "", "", "", vbench_path, "skipped"])
                     continue
 
             print(f"[InfWorld] Task {task_idx} sample {sample_idx + 1}/{num_samples}...")
@@ -505,9 +525,7 @@ def main():
                     "view": view.unsqueeze(0),
                 }
 
-                torch_gc()
-
-                with torch.no_grad():
+                with torch.inference_mode():
                     samples = scheduler.sample(
                         model=dit,
                         text_encoder=text_encoder,
@@ -596,6 +614,16 @@ def main():
                 vbench_path = os.path.join(cmd_args.vbench_output_dir, vbench_name)
                 save_silent_video(video_buffer.to(local_rank), vbench_path, fps=cmd_args.fps, quality=quality)
                 print(f"[InfWorld] Saved VBench: {vbench_path}.mp4")
+                if _vstats_path:
+                    _mem = psutil.virtual_memory()
+                    _gpu_gb = torch.cuda.memory_allocated(local_rank) / 1e9
+                    with open(_vstats_path, "a", newline="") as _sf:
+                        csv.writer(_sf).writerow([
+                            task_idx, prompt, vbench_idx,
+                            f"{_video_elapsed:.2f}", f"{_gen_fps:.2f}",
+                            f"{_mem.used / 1e9:.2f}", f"{_gpu_gb:.2f}",
+                            vbench_path + ".mp4", "ok",
+                        ])
 
             # Update progress stats after video is fully written
             _progress_done += 1
