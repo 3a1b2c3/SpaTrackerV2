@@ -69,6 +69,7 @@ set LOW_MEMORY=%6
 set MAX_ASPECTS=%7
 if "%MAX_ASPECTS%"=="" set MAX_ASPECTS=1
 set IMAGE_TYPES=%~8
+if "%IMAGE_TYPES%"=="" set IMAGE_TYPES=indoor,scenery
 set NUM_SAMPLES=%9
 if "%NUM_SAMPLES%"=="" set NUM_SAMPLES=5
 :: Args 10+ cannot be read via %~10/%~11 in Windows batch (%~10 = %~1 + "0")
